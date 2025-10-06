@@ -23,12 +23,62 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'mi_clave_secreta_super_segu
 MODEL_FILE = 'datos_climaticos_completos.pkl'
 agente_climatico = None
 
-# ---------------- 2. CARGA DEL MODELO .pkl ---
+# ---------------- 2. CARGA DEL MODELO .pkl DESDE AZURE BLOB STORAGE ---
+def cargar_modelo_desde_azure():
+    """Carga el modelo .pkl desde Azure Blob Storage"""
+    try:
+        # Obtener connection string desde variables de entorno
+        connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+        if not connection_string:
+            print("❌ No se encontró AZURE_STORAGE_CONNECTION_STRING en variables de entorno")
+            return None
+            
+        # Solo importar Azure Blob Storage si es necesario
+        from azure.storage.blob import BlobServiceClient
+        
+        # Conectar a Azure Storage
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(
+            container="ecowheather", 
+            blob=MODEL_FILE
+        )
+        
+        # Descargar el archivo .pkl
+        print(f"📥 Descargando {MODEL_FILE} desde Azure Storage...")
+        download_stream = blob_client.download_blob()
+        model_data = download_stream.readall()
+        
+        # Guardar temporalmente y cargar con joblib
+        temp_filename = f"temp_{MODEL_FILE}"
+        with open(temp_filename, "wb") as temp_file:
+            temp_file.write(model_data)
+        
+        # Cargar el modelo
+        modelo = joblib.load(temp_filename)
+        
+        # Opcional: eliminar el archivo temporal
+        import os
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+            
+        print(f"✅ Agente climático '{MODEL_FILE}' cargado desde Azure Storage.")
+        return modelo
+        
+    except Exception as e:
+        print(f"❌ Error cargando modelo desde Azure: {e}")
+        return None
+
+# Intentar cargar el modelo al iniciar la aplicación
 try:
-    agente_climatico = joblib.load(MODEL_FILE)
-    print(f"✅ Agente climático completo '{MODEL_FILE}' cargado en memoria.")
+    agente_climatico = cargar_modelo_desde_azure()
+    if agente_climatico is None:
+        print(f"⚠️ Intentando cargar {MODEL_FILE} localmente...")
+        agente_climatico = joblib.load(MODEL_FILE)
+        print(f"✅ Agente climático '{MODEL_FILE}' cargado localmente.")
 except FileNotFoundError:
-    print(f"❌ ADVERTENCIA: El archivo del modelo '{MODEL_FILE}' no se encontró. La funcionalidad de pronóstico no estará disponible.")
+    print(f"❌ ADVERTENCIA: No se pudo cargar el archivo '{MODEL_FILE}' ni localmente ni desde Azure. La funcionalidad de pronóstico no estará disponible.")
+except Exception as e:
+    print(f"❌ Error inesperado cargando el modelo: {e}")
 
 # ---------------- 3. FUNCIONES DE LÓGICA CLIMÁTICA (INTEGRADAS Y MEJORADAS) ----------------
 
@@ -181,6 +231,7 @@ def inicializar_db():
         print("✅ Base de datos y tablas verificadas/creadas.")
     except Exception as e:
         print(f"❌ Error al inicializar la base de datos: {e}")
+
 # ---------------- 5. RUTAS DE LA APLICACIÓN WEB ----------------
 
 # Rutas para las páginas principales (CÓDIGO DE TUS AMIGOS)
