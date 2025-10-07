@@ -1,4 +1,4 @@
-# app.py
+# app.py editado
 import os
 import json
 from datetime import datetime
@@ -39,7 +39,7 @@ def cargar_modelo_desde_azure():
         # Conectar a Azure Storage
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         blob_client = blob_service_client.get_blob_client(
-            container="ecowheather", 
+            container="ecov/heather", 
             blob=MODEL_FILE
         )
         
@@ -57,7 +57,6 @@ def cargar_modelo_desde_azure():
         modelo = joblib.load(temp_filename)
         
         # Opcional: eliminar el archivo temporal
-        import os
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
             
@@ -302,7 +301,7 @@ def perfil():
         # Si NO está logueado, mostrar opciones
         return render_template('login/perfil_opciones.html')
 
-# --- API para la funcionalidad del clima (REFORMULADA Y MEJORADA) ---
+# --- API para la funcionalidad del clima (REFORMULADA Y MEJORADAS) ---
 @app.route('/api/get_climate_data', methods=['POST'])
 def get_climate_data():
     data = request.json
