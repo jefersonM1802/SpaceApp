@@ -11,8 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentDate = new Date();
 
     const months = [
-        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
     ];
 
     async function fetchEvents() {
@@ -20,15 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/obtener_eventos');
             if (!response.ok) {
                 if (response.status === 401) {
-                    alert('Tu sesión ha expirado. Por favor, inicia sesión de nuevo.');
+                    alert('Your session has expired. Please log in again.');
                     window.location.href = '/login';
                 }
-                throw new Error('No se pudieron cargar los eventos.');
+                throw new Error('Events could not be loaded.');
             }
             events = await response.json();
             renderCalendar();
         } catch (error) {
-            console.error('Error al obtener eventos:', error);
+            console.error('Error getting events.', error);
         }
     }
 
@@ -103,13 +103,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                  const data = await response.json();
-                 throw new Error(data.error || 'Error al guardar.');
+                 throw new Error(data.error || 'Error saving.');
             }
             
             closeModal();
             fetchEvents(); // Recargar los eventos desde el servidor
         } catch(error) {
-            console.error('Error al guardar evento:', error);
+            console.error('Error saving event.', error);
             alert(error.message);
         }
     }

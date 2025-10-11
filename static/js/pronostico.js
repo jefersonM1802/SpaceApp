@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const descripcion = document.getElementById('evento-desc').value;
 
         const saveBtn = document.getElementById('save-agenda-btn');
-        saveBtn.textContent = "Guardando...";
+        saveBtn.textContent = "Saving...";
         saveBtn.disabled = true;
 
         try {
@@ -51,21 +51,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 if (response.status === 401) {
-                    alert('Debes iniciar sesión para poder agendar un evento.');
+                    alert('You must be logged in to schedule an event.');
                     window.location.href = '/login';
                 } else {
-                    throw new Error(data.error || 'Error al guardar el evento.');
+                    throw new Error(data.error || 'Error saving event.');
                 }
             } else {
-                alert('¡Evento agendado con éxito!');
+                alert('¡Event scheduled successfully!');
                 closeAgendaModal();
             }
 
         } catch (error) {
-            console.error("Error al guardar evento:", error);
+            console.error("Error saving event.", error);
             alert(error.message);
         } finally {
-            saveBtn.textContent = "Guardar Evento";
+            saveBtn.textContent = "Save event";
             saveBtn.disabled = false;
         }
     }
@@ -82,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 datasets: [
                     {
                         type: 'line',
-                        label: 'Temperatura (°C)',
+                        label: 'Temperature (°C)',
                         data: chartData.temperatures,
                         borderColor: '#e74c3c',
                         yAxisID: 'y_temp_hum',
@@ -90,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     {
                         type: 'line',
-                        label: 'Punto de Rocío (°C)',
+                        label: 'Dew point (°C)',
                         data: chartData.humidities,
                         borderColor: '#70c6ffff',
                         yAxisID: 'y_temp_hum',
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     {
                         type: 'bar',
-                        label: 'Precipitación (mm)',
+                        label: 'Precipitation (mm)',
                         data: chartData.precipitations,
                         backgroundColor: 'rgba(0, 255, 106, 0.5)',
                         yAxisID: 'y_precip',
@@ -109,11 +109,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Pronóstico Climático para el Día Completo' },
+                    title: { display: true, text: 'Full-Day Weather Forecast' },
                     tooltip: { mode: 'index', intersect: false }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Hora del Día'} },
+                    x: { title: { display: true, text: 'Time of day'} },
                     y_temp_hum: { type: 'linear', position: 'left', title: { display: true, text: '°C'} },
                     y_precip: { type: 'linear', position: 'right', title: { display: true, text: 'mm'}, grid: { drawOnChartArea: false }, beginAtZero: true }
                 }
@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function fetchData(lat, lon, date, time) {
-        resultsDiv.innerHTML = `<p class="loading">Consultando datos...</p>`;
+        resultsDiv.innerHTML = `<p class="loading">Consulting Data...</p>`;
         resultsDiv.style.display = 'block';
         try {
             const mainResponse = await fetch('/api/get_climate_data', {
@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ latitude: lat, longitude: lon, date, time }),
             });
-            if (!mainResponse.ok) throw new Error('No se pudo obtener la descripción.');
+            if (!mainResponse.ok) throw new Error('Could not fetch description data.');
             const mainData = await mainResponse.json();
             
             let agendarBtnHTML = '';
@@ -141,24 +141,42 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fechaConsultada >= hoy) {
                 agendarBtnHTML = `
                     <div class="agenda-btn-container">
-                        <button id="agendar-btn">Agendar Visita</button>
+                        <button id="agendar-btn">Schedule Visit</button>
                     </div>
                 `;
             }
             
-            if (marker) map.removeLayer(marker);
-            map.setView([lat, lon], 12);
-            marker = L.marker([lat, lon]).addTo(map).bindPopup(`<b>${mainData.departamento || 'Ubicación'}</b>`).openPopup();
-            resultsDiv.innerHTML = `
-                <h3>Resultados para ${mainData.departamento || 'la ubicación seleccionada'}</h3>
-                <p class="result-description">${mainData.descripcion.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</p>
-                <div class="chart-container"><canvas id="daily-chart-canvas"></canvas></div>
-                ${agendarBtnHTML} 
-            `;
+            async function traducirDescripcion(texto) {
+  const respuesta = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(texto)}&langpair=es|en`);
+  const data = await respuesta.json();
+  return data.responseData.translatedText;
+}
+
+if (marker) map.removeLayer(marker);
+map.setView([lat, lon], 12);
+marker = L.marker([lat, lon])
+  .addTo(map)
+  .bindPopup(`<b>${mainData.departamento || 'Location'}</b>`)
+  .openPopup();
+
+// 🔸 Primero renderiza todo igual que antes (sin traducir aún)
+resultsDiv.innerHTML = `
+  <h3>Results for ${mainData.departamento || 'the selected location.'}</h3>
+  <p class="result-description">Translating...</p>
+  <div class="chart-container"><canvas id="daily-chart-canvas"></canvas></div>
+  ${agendarBtnHTML}
+`;
+
+// 🔸 Luego traduce y reemplaza solo el texto, sin destruir el botón
+traducirDescripcion(mainData.descripcion).then(descripcionTraducida => {
+  const descElem = resultsDiv.querySelector('.result-description');
+  descElem.innerHTML = descripcionTraducida.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+});
+
 
             if (fechaConsultada >= hoy) {
                 document.getElementById('agendar-btn').addEventListener('click', () => {
-                    openAgendaModal(mainData.departamento || 'Ubicación seleccionada', date, time);
+                    openAgendaModal(mainData.departamento || 'Selected location', date, time);
                 });
             }
 
@@ -167,12 +185,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ latitude: lat, longitude: lon, date }),
             });
-            if (!chartResponse.ok) throw new Error('No se pudo obtener los datos del gráfico.');
+            if (!chartResponse.ok) throw new Error('The data could not be obtained for the chart.');
             const chartData = await chartResponse.json();
             renderDailyChart(chartData);
 
         } catch (error) {
-            console.error("Error en fetchData:", error);
+            console.error("Error in fetchData:", error);
             resultsDiv.innerHTML = `<p class="error-message">Error al conectar con el servidor.</p>`;
         }
     }
@@ -181,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
     getManualBtn.addEventListener('click', () => {
         const date = dateInput.value;
         const time = timeInput.value;
-        if (!date || !time) return alert('Por favor, selecciona fecha y hora.');
+        if (!date || !time) return alert('Please select date and time.');
         fetchData(selectedLat, selectedLon, date, time);
     });
     
@@ -194,8 +212,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function handleSearch() {
         const placeName = searchInput.value.trim();
-        if (placeName === '') return alert('Ingresa un nombre de lugar.');
-        searchBtn.textContent = 'Buscando...';
+        if (placeName === '') return alert('Enter a place name to search.');
+        searchBtn.textContent = 'Searching...';
         searchBtn.disabled = true;
         try {
             const response = await fetch('/api/search_location', {
@@ -205,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Lugar no encontrado.');
+                throw new Error(errorData.error || 'Place not found.');
             }
             const data = await response.json();
             selectedLat = data.latitude;
@@ -216,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             alert(error.message);
         } finally {
-            searchBtn.textContent = 'Buscar';
+            searchBtn.textContent = 'Search';
             searchBtn.disabled = false;
         }
     }
@@ -244,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatbox = document.querySelector(".chatbox");
 
     if (!chatbotToggler || !chatInput || !sendChatBtn || !chatbox) {
-        console.warn("Elementos del chatbot no encontrados. Asegúrate de que el HTML esté correcto.");
+        console.warn("Chatbot elements not found. Make sure the HTML is correct.");
         return;
     }
 
@@ -291,8 +309,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             const thinkingP = incomingChatLi.querySelector("p");
-            thinkingP.textContent = "¡Ups! Algo salió mal. Por favor, intenta de nuevo.";
-            console.error("Error al contactar al chatbot:", error);
+            thinkingP.textContent = "Oops! Something went wrong. Please try again.";
+            console.error("Error contacting chatbot:", error);
         } finally {
             chatbox.scrollTo(0, chatbox.scrollHeight);
         }
