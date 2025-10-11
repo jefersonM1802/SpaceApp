@@ -666,9 +666,12 @@ def chatbot_logic():
 
 # ---------------- EJECUCIÓN ----------------
 if __name__ == '__main__':
-    # Inicializa la base de datos y la tabla usuarios
-    inicializar_db()
-    
-    # Ejecutamos Flask en el puerto 8000
-    PORT = 8000
-    app.run(debug=True, port=PORT)
+    try:
+        # Solo intenta inicializar la DB si se está corriendo localmente
+        if not os.environ.get('DB_HOST'):
+            inicializar_db()
+    except Exception as e:
+        print(f"AVISO: No se pudo inicializar la DB local. ¿Está MySQL corriendo? Error: {e}")
+
+    PORT = int(os.environ.get('PORT', 8000))
+    app.run(debug=False, port=PORT, host='0.0.0.0')
