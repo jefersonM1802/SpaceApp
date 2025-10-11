@@ -13,13 +13,17 @@ tailwind.config = {
 // --- HTML TEMPLATE FOR EACH CARD ---
 const cardTemplate = (data, cardId) => `
   <div class="flex flex-col gap-6">
-    <!-- NEW! Search Bar -->
+    <!-- Search Bar -->
     <div class="search-container">
         <input id="search-input-${cardId}" class="w-full" type="text" placeholder="Search location in Peru..."/>
         <button id="search-btn-${cardId}" class="px-4 rounded-lg">Search</button>
     </div>
     
-    <div id="map-${cardId}" class="aspect-video w-full rounded-lg shadow-md border border-white/10"></div>
+    <!-- This container will hold either the map or the video -->
+    <div id="media-container-${cardId}" class="aspect-video w-full rounded-lg shadow-md border border-white/10 transition-opacity duration-500">
+        <div id="map-${cardId}" class="w-full h-full"></div>
+    </div>
+    
     <div class="flex gap-2">
       <button id="location-btn-${cardId}" class="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-primary/10 text-primary font-semibold hover:bg-primary/20 transition-colors">
         <span class="material-symbols-outlined">my_location</span>
@@ -49,7 +53,7 @@ const cardTemplate = (data, cardId) => `
       </div>
     </div>
     <button id="consult-btn-${cardId}" class="w-full py-3 px-4 rounded-lg bg-primary text-white font-bold hover:opacity-90 transition-opacity">Get Data</button>
-    <div class="border-t border-white/20 pt-6">
+    <div id="results-container-${cardId}" class="border-t border-white/20 pt-6">
       <h3 class="text-lg font-bold mb-4">Results</h3>
       <div class="space-y-4 text-sm">
         <div class="flex justify-between py-2 border-b border-white/10"><span>City</span><span class="font-semibold text-white">${data.ciudad}</span></div>
@@ -67,15 +71,14 @@ const cardTemplate = (data, cardId) => `
 `;
 
 // --- APPLICATION LOGIC ---
-const videoDatabase = { "-13.1631,-72.5450": { day: "/static/Videos/MachuPichuDia.mp4" } };
-
 function initializeCard(cardId, initialData) {
     const cardContainer = document.getElementById(`card${cardId}`);
     cardContainer.innerHTML = cardTemplate(initialData, cardId);
 
-    const map = L.map(`map-${cardId}`).setView([initialData.lat, initialData.lon], 10);
+    let map = L.map(`map-${cardId}`).setView([initialData.lat, initialData.lon], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
     let marker = L.marker([initialData.lat, initialData.lon]).addTo(map);
+    let isShowingVideo = false;
     
     // --- Card Elements ---
     const consultBtn = document.getElementById(`consult-btn-${cardId}`);
@@ -85,6 +88,27 @@ function initializeCard(cardId, initialData) {
     const lonInput = document.getElementById(`lon-input-${cardId}`);
     const searchInput = document.getElementById(`search-input-${cardId}`);
     const searchBtn = document.getElementById(`search-btn-${cardId}`);
+    const resultsContainer = document.getElementById(`results-container-${cardId}`);
+    // --- FIX! Define the mediaContainer variable here ---
+    const mediaContainer = document.getElementById(`media-container-${cardId}`);
+
+    // --- Function to update the UI with new data (Non-destructive) ---
+    function updateUI(data) {
+        resultsContainer.innerHTML = `
+            <h3 class="text-lg font-bold mb-4">Results</h3>
+            <div class="space-y-4 text-sm">
+                <div class="flex justify-between py-2 border-b border-white/10"><span>City</span><span class="font-semibold text-white">${data.ciudad}</span></div>
+                <div class="flex justify-between py-2 border-b border-white/10"><span>Country</span><span class="font-semibold text-white">${data.pais}</span></div>
+                <div class="flex justify-between py-2 border-b border-white/10"><span>Forecast</span><span class="font-semibold text-white">${data.pronostico}</span></div>
+                <div class="flex justify-between py-2 border-b border-white/10"><span>Precipitation (mm)</span><span class="font-semibold text-white">${data.precipitacion}</span></div>
+                <div class="flex justify-between py-2 border-b border-white/10"><span>Relative Humidity</span><span class="font-semibold text-white">${data.humedad}%</span></div>
+            </div>
+            <div class="mt-6 p-4 bg-primary/10 rounded-lg flex items-center justify-between">
+                <div><p class="text-sm">Temperature</p><p class="text-2xl font-bold text-white">${data.temp}°C</p></div>
+                <span class="material-symbols-outlined text-4xl text-primary">thermostat</span>
+            </div>
+        `;
+    }
 
     // --- Search Function ---
     async function handleSearch() {
@@ -111,10 +135,10 @@ function initializeCard(cardId, initialData) {
         }
     }
     
+    // --- EVENT LISTENERS ---
     searchBtn.addEventListener('click', handleSearch);
     searchInput.addEventListener('keypress', e => e.key === 'Enter' && handleSearch());
 
-    // --- Other Events ---
     consultBtn.addEventListener('click', async () => {
         const lat = parseFloat(latInput.value);
         const lon = parseFloat(lonInput.value);
@@ -133,10 +157,13 @@ function initializeCard(cardId, initialData) {
                 body: JSON.stringify({ latitude: lat, longitude: lon, date, time })
             });
             const data = await response.json();
-            data.lat = lat; data.lon = lon;
-            initializeCard(cardId, data);
+            // --- FIX! Instead of re-initializing, just update the UI ---
+            updateUI(data); 
         } catch (error) {
             alert("Error connecting to the server.");
+        } finally {
+            consultBtn.textContent = "Get Data";
+            consultBtn.disabled = false;
         }
     });
 
@@ -156,8 +183,43 @@ function initializeCard(cardId, initialData) {
     });
 
     simulateBtn.addEventListener('click', () => {
-        // Simplified video logic
-        alert("Video feature under development.");
+        // =========================================================================
+        // === YOUR STATIC VIDEO LINK GOES HERE! Change this URL as needed. ===
+        // =========================================================================
+        const staticVideoSrc = '/static/videos/machupicchu_noche.mp4'; 
+        
+        mediaContainer.style.opacity = '0';
+
+        setTimeout(() => {
+            if (!isShowingVideo) {
+                mediaContainer.innerHTML = `
+                    <video class="w-full h-full rounded-lg object-cover" autoplay loop muted playsinline>
+                        <source src="${staticVideoSrc}" type="video/mp4">
+                        Your browser does not support videos.
+                    </video>`;
+                simulateBtn.innerHTML = `<span class="material-symbols-outlined">map</span><span>View Map</span>`;
+                isShowingVideo = true;
+            } else {
+                mediaContainer.innerHTML = `<div id="map-${cardId}" class="w-full h-full"></div>`;
+                
+                const lat = parseFloat(latInput.value) || initialData.lat;
+                const lon = parseFloat(lonInput.value) || initialData.lon;
+                map = L.map(`map-${cardId}`).setView([lat, lon], 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                marker = L.marker([lat, lon]).addTo(map);
+                
+                map.on('click', function(e) {
+                    latInput.value = e.latlng.lat.toFixed(6);
+                    lonInput.value = e.latlng.lng.toFixed(6);
+                    if (marker) map.removeLayer(marker);
+                    marker = L.marker(e.latlng).addTo(map);
+                });
+
+                simulateBtn.innerHTML = `<span class="material-symbols-outlined">movie</span><span>Watch Video</span>`;
+                isShowingVideo = false;
+            }
+            mediaContainer.style.opacity = '1';
+        }, 500);
     });
 }
 
@@ -172,3 +234,4 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeCard(1, initialData1);
     initializeCard(2, initialData2);
 });
+
