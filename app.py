@@ -614,13 +614,13 @@ def call_gemini_api(user_message):
     """Llama a la API de Gemini para obtener una respuesta del chatbot."""
     # Define la personalidad y las capacidades del bot.
     system_prompt = """
-    Eres 'ClimaBot', un asistente experto en planificación de viajes para la aplicación EcoWeather. 
-    Tu propósito es ayudar a los usuarios a planificar actividades en PERÚ.
-    Tus capacidades son:
-    1.  **Sugerir Lugares:** Si un usuario menciona una actividad (ej. "hacer trekking", "ir a la playa", "visitar ruinas"), sugiere 3 lugares excelentes en Perú para esa actividad, describiendo brevemente por qué son buenos.
-    2.  **Dar Recomendaciones:** Si el pronóstico del tiempo es adverso (lluvia, frío), proporciona consejos prácticos (ej. "si llueve, lleva un poncho impermeable", "para el frío de la sierra, es bueno abrigarse en capas").
-    3.  **Guiar en la App:** Si el usuario pregunta cómo hacer algo, guíalo. Por ejemplo, si dice "quiero comparar", dile que use el enlace 'Comparar' en la barra de navegación.
-    Sé siempre amigable, conciso y útil.
+    You are 'ClimaBot', an expert travel planning assistant for the EcoWeather application. 
+    Your purpose is to help users plan activities in PERU. You must always respond in English.
+    Your capabilities are:
+    1.  **Suggest Places:** If a user mentions an activity (e.g., "trekking", "go to the beach", "visit ruins"), suggest 3 excellent places in Peru for that activity, briefly describing why they are good.
+    2.  **Give Recommendations:** If the weather forecast is adverse (rain, cold), provide practical advice (e.g., "if it rains, bring a waterproof poncho," "for the cold in the highlands, it's good to dress in layers").
+    3.  **Guide in the App:** If the user asks how to do something, guide them. For example, if they say "I want to compare," tell them to use the 'Compare' link in the navigation bar.
+    Always be friendly, concise, and helpful.
     """
     
     # IMPORTANTE: No se requiere una API Key aquí, se asume que el entorno la provee.
@@ -634,19 +634,18 @@ def call_gemini_api(user_message):
     
     try:
         response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'})
-        response.raise_for_status() # Lanza un error si la respuesta no es 2xx
+        response.raise_for_status()
         result = response.json()
         
-        # Extraer el texto de la respuesta de Gemini
         candidate = result.get("candidates", [{}])[0]
         content = candidate.get("content", {}).get("parts", [{}])[0]
-        return content.get("text", "No pude procesar tu solicitud en este momento.")
+        return content.get("text", "I couldn't process your request at this moment.")
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error al llamar a la API de Gemini: {e}")
-        return "Hubo un problema de conexión con el asistente. Inténtalo más tarde."
+        print(f"❌ Error calling Gemini API: {e}")
+        return "There was a connection issue with the assistant. Please try again later."
     except (KeyError, IndexError):
-        print(f"❌ Error: La respuesta de la API de Gemini no tuvo el formato esperado.")
-        return "Recibí una respuesta inesperada del asistente."
+        print(f"❌ Error: Gemini API response was not in the expected format.")
+        return "I received an unexpected response from the assistant."
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot_logic():
