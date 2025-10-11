@@ -8,7 +8,7 @@ import joblib
 import numpy as np
 from scipy.interpolate import griddata
 import requests
-
+from pymongo import MongoClient
 from flask import Flask, render_template, request, jsonify, url_for, redirect, session, send_from_directory
 # --- Importaciones de tus amigos (SE MANTIENEN) ---
 import mysql.connector
@@ -18,88 +18,31 @@ import bcrypt
 app = Flask(__name__)
 
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'mi_clave_secreta_super_segura')
-
-# --- ¡CORREGIDO! Usamos el nombre del modelo completo ---
-MODEL_FILE = 'datos_climaticos_completos.pkl'
-agente_climatico = None
-
-# ---------------- 2. CARGA DEL MODELO .pkl DESDE AZURE BLOB STORAGE ---
-def cargar_modelo_desde_azure():
-    """Carga el modelo .pkl desde Azure Blob Storage"""
+# Esta sección reemplaza por completo la carga del archivo .pkl
+MONGO_URI = os.environ.get('MONGO_URI') # Se configurará en Azure
+if not MONGO_URI:
+    MONGO_URI = "mongodb+srv://2022210241_db_user:9Q05IZyjV4ZMzHex@datosclimaticos.zslpbdj.mongodb.net/?retryWrites=true&w=majority&appName=datosClimaticos"
+mongo_client = None
+clima_collection = None
+if MONGO_URI:
     try:
-        # Obtener connection string desde variables de entorno
-        connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-        if not connection_string:
-            print("❌ No se encontró AZURE_STORAGE_CONNECTION_STRING en variables de entorno")
-            return None
-            
-        # Solo importar Azure Blob Storage si es necesario
-        from azure.storage.blob import BlobServiceClient
-        
-        # Conectar a Azure Storage
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(
-            container="ecov/heather", 
-            blob=MODEL_FILE
-        )
-        
-        # Descargar el archivo .pkl
-        print(f"📥 Descargando {MODEL_FILE} desde Azure Storage...")
-        download_stream = blob_client.download_blob()
-        model_data = download_stream.readall()
-        
-        # Guardar temporalmente y cargar con joblib
-        temp_filename = f"temp_{MODEL_FILE}"
-        with open(temp_filename, "wb") as temp_file:
-            temp_file.write(model_data)
-        
-        # Cargar el modelo
-        modelo = joblib.load(temp_filename)
-        
-        # Opcional: eliminar el archivo temporal
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-            
-        print(f"✅ Agente climático '{MODEL_FILE}' cargado desde Azure Storage.")
-        return modelo
-        
+        mongo_client = MongoClient(MONGO_URI)
+        # Ping para verificar la conexión
+        mongo_client.admin.command('ping')
+        db = mongo_client.EcoWeatherDB
+        clima_collection = db.ClimaHorario
+        print("✅ Conectado a MongoDB Atlas para datos climáticos.")
     except Exception as e:
-        print(f"❌ Error cargando modelo desde Azure: {e}")
-        return None
+        print(f"❌ Error al conectar con MongoDB: {e}")
+else:
+    print("❌ ADVERTENCIA: La variable MONGO_URI no está configurada. La funcionalidad de pronóstico no estará disponible en producción.")
 
-# Intentar cargar el modelo al iniciar la aplicación
-try:
-    agente_climatico = cargar_modelo_desde_azure()
-    if agente_climatico is None:
-        print(f"⚠️ Intentando cargar {MODEL_FILE} localmente...")
-        agente_climatico = joblib.load(MODEL_FILE)
-        print(f"✅ Agente climático '{MODEL_FILE}' cargado localmente.")
-except FileNotFoundError:
-    print(f"❌ ADVERTENCIA: No se pudo cargar el archivo '{MODEL_FILE}' ni localmente ni desde Azure. La funcionalidad de pronóstico no estará disponible.")
-except Exception as e:
-    print(f"❌ Error inesperado cargando el modelo: {e}")
-
-# ---------------- 3. FUNCIONES DE LÓGICA CLIMÁTICA (INTEGRADAS Y MEJORADAS) ----------------
-
-# --- ¡NUEVO! Función para calcular Humedad Relativa ---
-def calcular_humedad_relativa(temp_c, pto_rocio_c):
-    """Calcula la humedad relativa en % a partir de la temperatura y el punto de rocío."""
-    if temp_c is None or pto_rocio_c is None:
-        return None
-    b = 17.625
-    c = 243.04
-    gamma = (b * pto_rocio_c / (c + pto_rocio_c)) - (b * temp_c / (c + temp_c))
-    rh = 100 * math.exp(gamma)
-    return min(100, max(0, rh)) # Asegura que esté entre 0 y 100
-
+# ---------------- 2. FUNCIONES DE LÓGICA CLIMÁTICA (MODIFICADAS) ----------------
+# Esta función ahora consulta MongoDB en lugar de un diccionario en memoria
 def pronosticar_clima(latitud: float, longitud: float, fecha: str, hora: str):
-    """
-    Pronostica temperatura, humedad y precipitación usando el agente .pkl completo.
-    """
-    if agente_climatico is None: 
-        return {"error": "Modelo de datos no disponible."}
+    if not clima_collection: 
+        return {"error": "Conexión a la base de datos climáticos no disponible."}
     
-    # Asegura que la hora tenga el formato correcto para strptime
     if len(hora.split(':')) == 1: hora += ":00"
     fecha_hora_str = f"{fecha} {hora}"
 
@@ -111,21 +54,25 @@ def pronosticar_clima(latitud: float, longitud: float, fecha: str, hora: str):
         return {"error": f"Formato de fecha/hora inválido: {fecha_hora_str}"}
 
     resultados = {}
-    # Itera sobre las 3 variables que tenemos en nuestro modelo
     for variable in ['temperatura', 'humedad', 'precipitacion']:
         valores_historicos, anios_historicos = [], []
-        # Usa el rango de años de tus datos, ej. 2015-2024
+        # Usa el rango de años que subiste a tu base de datos (ej. 2015-2024)
         for anio in range(2015, 2025): 
             fecha_historica_str = f"{anio}-{mes_dia_hora}"
-            if fecha_historica_str in agente_climatico:
-                datos_hora = agente_climatico[fecha_historica_str]
-                if 'puntos' in datos_hora and variable in datos_hora:
-                    valor_estimado = griddata(datos_hora['puntos'], datos_hora[variable], (longitud, latitud), method='cubic')
-                    if not np.isnan(valor_estimado):
-                        valores_historicos.append(float(valor_estimado))
-                        anios_historicos.append(anio)
+            
+            # ¡CAMBIO CLAVE! Consultamos MongoDB en lugar de buscar en 'agente_climatico'
+            datos_hora = clima_collection.find_one({"_id": fecha_historica_str})
+            
+            if datos_hora and 'puntos' in datos_hora and variable in datos_hora:
+                # Convertimos las listas de la base de datos de vuelta a numpy arrays
+                puntos_np = np.array(datos_hora['puntos'])
+                valores_np = np.array(datos_hora[variable])
+                
+                valor_estimado = griddata(puntos_np, valores_np, (longitud, latitud), method='cubic')
+                if not np.isnan(valor_estimado):
+                    valores_historicos.append(float(valor_estimado))
+                    anios_historicos.append(anio)
         
-        # Calcula la tendencia o el promedio simple
         if len(valores_historicos) < 4:
             resultado_final = np.mean(valores_historicos) if valores_historicos else None
         else:
@@ -136,33 +83,32 @@ def pronosticar_clima(latitud: float, longitud: float, fecha: str, hora: str):
     
     return resultados
 
-def generar_descripcion_completa(resultados):
-    """Genera un texto descriptivo a partir de los resultados numéricos."""
-    temp = resultados.get('temperatura')
-    # ¡YA NO ES SIMULADO! Usa el dato real de precipitación del modelo.
-    precip = resultados.get('precipitacion')
+# --- (El resto de tus funciones de lógica climática no necesitan cambios) ---
+def calcular_humedad_relativa(temp_c, pto_rocio_c):
+    if temp_c is None or pto_rocio_c is None: return None
+    b, c = 17.625, 243.04
+    gamma = (b * pto_rocio_c / (c + pto_rocio_c)) - (b * temp_c / (c + temp_c))
+    rh = 100 * math.exp(gamma)
+    return min(100, max(0, rh))
 
+def generar_descripcion_completa(resultados):
+    temp = resultados.get('temperatura'); precip = resultados.get('precipitacion')
     if temp is None: desc_temp = "Temperatura no disponible"
     elif temp < 5: desc_temp = "Muy Frío"
     elif 5 <= temp < 12: desc_temp = "Frío"
     elif 12 <= temp < 18: desc_temp = "Fresco / Templado"
     elif 18 <= temp < 24: desc_temp = "Cálido / Agradable"
     else: desc_temp = "Caluroso"
-        
-    if precip is None or precip < 0: desc_precip = "" # Ignora precipitación si no hay dato o es negativo
+    if precip is None or precip < 0: desc_precip = ""
     elif precip <= 0.1: desc_precip = "con cielo mayormente despejado."
     elif 0.1 < precip <= 1.0: desc_precip = "con posibles lloviznas."
     elif 1.0 < precip <= 5.0: desc_precip = "con probabilidad de lluvia."
     else: desc_precip = "con pronóstico de lluvias intensas."
-        
     temp_str = f"{temp:.1f}°C" if isinstance(temp, float) else "N/A"
-    return f"El pronóstico es {desc_temp} (aprox. {temp_str}) {desc_precip}"
+    return f"El pronóstico es **{desc_temp}** (aprox. {temp_str}) {desc_precip}"
 
 def generar_descripcion_corta(resultados):
-    """Genera una descripción corta como 'Soleado', 'Lluvioso', etc."""
-    temp = resultados.get('temperatura')
-    precip = resultados.get('precipitacion')
-
+    temp = resultados.get('temperatura'); precip = resultados.get('precipitacion')
     if precip is not None and precip > 1.0: return "Lluvioso"
     if temp is None: return "Desconocido"
     if temp > 24: return "Caluroso"
@@ -171,7 +117,6 @@ def generar_descripcion_corta(resultados):
     return "Frío"
 
 def obtener_ubicacion_osm(latitud, longitud):
-    """Obtiene el nombre del departamento/país de OpenStreetMap."""
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitud}&lon={longitud}"
         headers = {'User-Agent': 'MiAppClima/1.0'}
@@ -182,14 +127,27 @@ def obtener_ubicacion_osm(latitud, longitud):
             ciudad = address.get('city', address.get('town', address.get('village', address.get('state'))))
             return ciudad or 'Ubicación desconocida', address.get('country', 'N/A')
         return "En el mar o sin datos", "N/A"
-    except Exception:
-        return "Error de API", "N/A"
+    except Exception: return "Error de API", "N/A"
 
 # ---------------- 4. CONEXIÓN Y ESTRUCTURA DE BASE DE DATOS ----------------
+# REEMPLAZA TU FUNCIÓN 'conectar' CON ESTA
 def conectar(con_db=True):
-    db_config = {"host": "localhost", "user": "root", "password": ""}
-    if con_db: db_config["database"] = "login_db"
+    # Lee las credenciales desde las variables de entorno (para Azure)
+    # Si no las encuentra, usa los valores locales por defecto (para tu PC)
+    db_config = {
+        "host": os.environ.get('DB_HOST', 'localhost'),
+        "user": os.environ.get('DB_USER', 'root'),
+        "password": os.environ.get('DB_PASSWORD', '') # Pon tu contraseña local si tienes una
+    }
+    if con_db:
+        db_config["database"] = os.environ.get('DB_NAME', 'login_db')
+    
+    # ¡IMPORTANTE! Esto es necesario para conectar a Azure Database for MySQL
+    if os.environ.get('DB_HOST'):
+        db_config["ssl_disabled"] = True
+
     return mysql.connector.connect(**db_config)
+
 
 # --- FUNCIÓN INICIALIZAR_DB CORREGIDA ---
 def inicializar_db():
