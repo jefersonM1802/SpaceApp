@@ -144,7 +144,8 @@ def conectar(con_db=True):
     
     # ¡IMPORTANTE! Esto es necesario para conectar a Azure Database for MySQL
     if os.environ.get('DB_HOST'):
-        db_config["ssl_disabled"] = True
+        db_config["ssl_verify_identity"] = False
+        db_config["ssl_disabled"] = False
 
     return mysql.connector.connect(**db_config)
 
